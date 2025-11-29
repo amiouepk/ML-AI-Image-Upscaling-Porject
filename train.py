@@ -92,6 +92,18 @@ def train_edsr(scale_factor=4, n_resblocks=16, n_feats=64, epochs=100, batch_siz
             epoch_loss += loss.item()
 
         print(f"Epoch [{epoch+1}/{epochs}], Loss: {epoch_loss/len(train_loader):.4f}")
+        #validation
+        model.eval()
+        with torch.no_grad():
+            val_loss = 0
+            for lr_images, hr_images in train_loader:   # you can create a separate val loader later
+                lr_images = lr_images.to(device)
+                hr_images = hr_images.to(device)
+    
+                sr_images = model(lr_images)
+                val_loss += criterion(sr_images, hr_images).item()
+    
+        print(f"Validation Loss: {val_loss/len(train_loader):.4f}")
         
         # Save a checkpoint occasionally
         if (epoch + 1) % 10 == 0:
