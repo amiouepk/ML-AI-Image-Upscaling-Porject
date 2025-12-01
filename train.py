@@ -7,6 +7,7 @@ from PIL import Image
 import torchvision.transforms.functional as TF
 import os
 import math
+import model 
 
 # Assuming you have a custom dataset class 'SRDataset' that loads HR images
 # and creates LR images on the fly (e.g., by Bicubic downsampling)
