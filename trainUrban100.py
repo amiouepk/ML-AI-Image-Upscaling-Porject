@@ -8,7 +8,6 @@ import torchvision.transforms.functional as TF
 import os
 import math
 from model import EDSR
-import zipfile
 import kaggle
 
 # Assuming you have a custom dataset class 'SRDataset' that loads HR images
