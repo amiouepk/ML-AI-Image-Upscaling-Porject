@@ -7,26 +7,55 @@ from PIL import Image
 import torchvision.transforms.functional as TF
 import os
 import math
-import model
+from model import EDSR
+import zipfile
 
 # Assuming you have a custom dataset class 'SRDataset' that loads HR images
 # and creates LR images on the fly (e.g., by Bicubic downsampling)
 
 # --- Placeholder for a simple Dataset ---
 class Urban100Dataset(Dataset):
-    def __init__(self, hr_dir, scale_factor):
-        self.hr_files = [os.path.join(hr_dir, f)
-                         for f in os.listdir(hr_dir)
-                         if f.lower().endswith(('.png', '.jpg'))]
+    def __init__(self, data_root="data/urban100", scale_factor=4):
         self.scale = scale_factor
+        self.data_root = data_root
+        self.hr_dir = os.path.join(data_root, "Urban100")
+
+        # --- Auto-download if dataset not present ---
+        if not os.path.exists(self.hr_dir):
+            print("Urban100 dataset not found. Downloading from Kaggle...")
+            self._download_from_kaggle()
+
+        # --- Load file list ---
+        self.hr_files = sorted([
+            os.path.join(self.hr_dir, f)
+            for f in os.listdir(self.hr_dir)
+            if f.lower().endswith((".png", ".jpg"))
+        ])
+
+    def _download_from_kaggle(self):
+        os.makedirs(self.data_root, exist_ok=True)
+
+        # Kaggle command → requires Kaggle API token present in ~/.kaggle/kaggle.json
+        kaggle.api.dataset_download_files(
+            "harshraone/urban100",
+            path=self.data_root,
+            unzip=True
+        )
+
+        print("Download complete!")
 
     def __getitem__(self, idx):
         hr = Image.open(self.hr_files[idx]).convert('RGB')
         w, h = hr.size
+
         lr = hr.resize((w // self.scale, h // self.scale), Image.BICUBIC)
         hr = hr.crop((0, 0, (w // self.scale) * self.scale,
                              (h // self.scale) * self.scale))
+
         return TF.to_tensor(lr), TF.to_tensor(hr)
+
+    def __len__(self):
+        return len(self.hr_files)
     
 # --- Main Training Script ---
 
@@ -46,7 +75,7 @@ def train_edsr(scale_factor=4, n_resblocks=16, n_feats=64, epochs=100, batch_siz
         model = nn.DataParallel(model) # Simple and effective for training
 
     # 4. Data Loading (Replace 'path/to/hr/images' with your actual directory)
-    train_dataset = SimpleSRDataset(hr_dir='path/to/hr/images', scale_factor=scale_factor)
+    train_dataset = SimpleSRDataset(scale_factor=scale_factor)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
     # 5. Loss Function and Optimizer
