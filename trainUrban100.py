@@ -15,52 +15,67 @@ import kaggle
 
 # --- Placeholder for a simple Dataset ---
 class Urban100Dataset(Dataset):
-    def __init__(self, data_root="data/urban100", scale_factor=4):
-        self.scale = scale_factor
+    def __init__(self, data_root="data/urban100", scale=2):
+        self.scale = scale
         self.data_root = data_root
-        self.hr_dir = os.path.join(data_root, "Urban100")
 
-        # --- Auto-download if dataset not present ---
+        # Path to Urban100/X2/X2/HIGH X2 Urban
+        self.hr_dir = os.path.join(
+            data_root,
+            "Urban 100",
+            f"X{scale} Urban100",
+            f"X{scale}",
+            f"HIGH X{scale} Urban"
+        )
+
+        # --- Auto-download if not present ---
         if not os.path.exists(self.hr_dir):
             print("Urban100 dataset not found. Downloading from Kaggle...")
             self._download_from_kaggle()
 
-        # --- Load file list ---
+        # --- Load HR file list ---
         self.hr_files = sorted([
             os.path.join(self.hr_dir, f)
             for f in os.listdir(self.hr_dir)
-            if f.lower().endswith((".png", ".jpg"))
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
         ])
+
+        if len(self.hr_files) == 0:
+            raise RuntimeError(f"No image files found in {self.hr_dir}")
 
     def _download_from_kaggle(self):
         os.makedirs(self.data_root, exist_ok=True)
 
-        # Kaggle command → requires Kaggle API token present in ~/.kaggle/kaggle.json
-        kaggle.api.dataset_download_files(
-            "harshraone/urban100",
-            path=self.data_root,
-            unzip=True
-        )
+        cmd = [
+            "kaggle", "datasets", "download",
+            "-d", "harshraone/urban100",
+            "-p", self.data_root,
+            "--unzip"
+        ]
+        subprocess.run(cmd, check=True)
 
-        print("Download complete!")
+        print("Urban100 download complete!")
 
     def __getitem__(self, idx):
-        hr = Image.open(self.hr_files[idx]).convert('RGB')
+        hr = Image.open(self.hr_files[idx]).convert("RGB")
         w, h = hr.size
 
         lr = hr.resize((w // self.scale, h // self.scale), Image.BICUBIC)
-        hr = hr.crop((0, 0, (w // self.scale) * self.scale,
-                             (h // self.scale) * self.scale))
+
+        hr = hr.crop((0, 0,
+                      (w // self.scale) * self.scale,
+                      (h // self.scale) * self.scale))
 
         return TF.to_tensor(lr), TF.to_tensor(hr)
 
     def __len__(self):
         return len(self.hr_files)
-    
+
+
 # --- Main Training Script ---
 
 def train_edsr(scale_factor=4, n_resblocks=16, n_feats=64, epochs=100, batch_size=16, lr=1e-4):
-    
+
     # 1. Device Setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -75,9 +90,9 @@ def train_edsr(scale_factor=4, n_resblocks=16, n_feats=64, epochs=100, batch_siz
         model = nn.DataParallel(model) # Simple and effective for training
 
     # 4. Data Loading (Replace 'path/to/hr/images' with your actual directory)
-    train_dataset = SimpleSRDataset(scale_factor=scale_factor)
+    train_dataset = Urban100Dataset(scale=2)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-
+    
     # 5. Loss Function and Optimizer
     # L1 Loss is standard and better than MSE for visually sharp results in SR
     criterion = nn.L1Loss().to(device)
