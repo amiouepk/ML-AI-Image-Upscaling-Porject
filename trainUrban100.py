@@ -9,6 +9,7 @@ import os
 import math
 from model import EDSR
 import zipfile
+import kaggle
 
 # Assuming you have a custom dataset class 'SRDataset' that loads HR images
 # and creates LR images on the fly (e.g., by Bicubic downsampling)
