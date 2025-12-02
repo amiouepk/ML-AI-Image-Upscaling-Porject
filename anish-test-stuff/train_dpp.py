@@ -11,6 +11,7 @@ from PIL import Image
 import os
 from glob import glob
 import argparse
+import subprocess
 
 # Import your model (assuming model.py is in the same folder)
 from model import EDSR
@@ -44,14 +45,23 @@ def setup_distributed():
     Setup distributed training for NERSC Perlmutter (SLURM).
     """
     if 'SLURM_PROCID' in os.environ:
-        # We are running on SLURM
         rank = int(os.environ['SLURM_PROCID'])
         world_size = int(os.environ['SLURM_NTASKS'])
         local_rank = int(os.environ['SLURM_LOCALID'])
-        
-        # Initialize the process group
-        # Perlmutter handles MASTER_ADDR/PORT automatically in most srun setups,
-        # but if not, they must be set in the shell script.
+
+        # --- ADD THIS BLOCK ---
+        import subprocess
+        try:
+            cmd = "scontrol show hostnames $SLURM_JOB_NODELIST"
+            stdout = subprocess.check_output(cmd, shell=True)
+            hostnames = stdout.decode().splitlines()
+            os.environ['MASTER_ADDR'] = hostnames[0]
+            os.environ['MASTER_PORT'] = "29500"
+        except Exception as e:
+            os.environ['MASTER_ADDR'] = '127.0.0.1'
+            os.environ['MASTER_PORT'] = "29500"
+        # ----------------------
+
         dist.init_process_group("nccl", rank=rank, world_size=world_size)
         
         # Set the device for this process
@@ -59,8 +69,7 @@ def setup_distributed():
         device = torch.device(f"cuda:{local_rank}")
         return device, rank, world_size, local_rank
     else:
-        # Fallback for debugging on single GPU non-slurm
-        print("Not using SLURM, falling back to CPU or single GPU (Not recommended for this script)")
+        print("Not using SLURM, falling back to CPU or single GPU.")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         return device, 0, 1, 0
 

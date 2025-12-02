@@ -6,40 +6,51 @@ import numpy as np
 from PIL import Image
 import torchvision.transforms.functional as TF
 import os
+import random
 import math
-import model 
+from model import EDSR
 
+  
 # Assuming you have a custom dataset class 'SRDataset' that loads HR images
 # and creates LR images on the fly (e.g., by Bicubic downsampling)
 
+def calc_psnr(img1, img2):
+    return 10. * torch.log10(1. / torch.mean((img1 - img2) ** 2))
+
 # --- Placeholder for a simple Dataset ---
 class SimpleSRDataset(Dataset):
-    def __init__(self, hr_dir, scale_factor):
-        # In a real scenario, this loads a list of HR image paths
-        self.hr_files = [os.path.join(hr_dir, f) for f in os.listdir(hr_dir) if f.endswith(('.png', '.jpg'))]
+    def __init__(self, hr_dir, scale_factor, patch_size=96):
+        self.hr_files = [os.path.join(hr_dir, f) for f in os.listdir(hr_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
         self.scale = scale_factor
+        self.patch_size = patch_size 
         self.to_tensor = TF.to_tensor
 
     def __len__(self):
         return len(self.hr_files)
 
     def __getitem__(self, idx):
-        # 1. Load HR image
+        # 1. Load Image
         hr_img = Image.open(self.hr_files[idx]).convert('RGB')
         
-        # 2. Downsample to create LR image (using Bicubic is standard)
+        # 2. Force the image to be at least as big as the patch
         w, h = hr_img.size
-        lr_w, lr_h = w // self.scale, h // self.scale
-        lr_img = hr_img.resize((lr_w, lr_h), Image.Resampling.BICUBIC)
+        if w < self.patch_size or h < self.patch_size:
+             hr_img = hr_img.resize((max(w, self.patch_size), max(h, self.patch_size)), Image.BICUBIC)
+             w, h = hr_img.size
+
+        # 3. Random Crop (The Secret to fixing the size error)
+        # We pick a random X and Y coordinate
+        x0 = random.randrange(0, w - self.patch_size + 1)
+        y0 = random.randrange(0, h - self.patch_size + 1)
         
-        # 3. Crop HR to ensure its size is a multiple of scale_factor
-        hr_img = hr_img.crop((0, 0, lr_w * self.scale, lr_h * self.scale))
+        hr_crop = hr_img.crop((x0, y0, x0 + self.patch_size, y0 + self.patch_size))
+        
+        # 4. Downsample the crop
+        lr_w = self.patch_size // self.scale
+        lr_h = self.patch_size // self.scale
+        lr_crop = hr_crop.resize((lr_w, lr_h), Image.BICUBIC)
 
-        # 4. Convert to PyTorch Tensor
-        lr_tensor = self.to_tensor(lr_img)
-        hr_tensor = self.to_tensor(hr_img)
-
-        return lr_tensor, hr_tensor
+        return self.to_tensor(lr_crop), self.to_tensor(hr_crop)
     
 # --- Main Training Script ---
 
@@ -59,7 +70,7 @@ def train_edsr(scale_factor=4, n_resblocks=16, n_feats=64, epochs=100, batch_siz
         model = nn.DataParallel(model) # Simple and effective for training
 
     # 4. Data Loading (Replace 'path/to/hr/images' with your actual directory)
-    train_dataset = SimpleSRDataset(hr_dir='path/to/hr/images', scale_factor=scale_factor)
+    train_dataset = SimpleSRDataset(hr_dir='/pscratch/sd/a/am3138/DIV2K_train_HR', scale_factor=scale_factor)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
     # 5. Loss Function and Optimizer
