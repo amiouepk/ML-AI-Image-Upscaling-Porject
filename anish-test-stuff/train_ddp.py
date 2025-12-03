@@ -148,7 +148,7 @@ def main():
     # Where to save data on Scratch
     data_root = '/pscratch/sd/a/am3138/datasets/DIV2K' 
     
-    batch_size = 16
+    batch_size = 64
     num_epochs = 20 # Lower epochs because of 'repeat' logic
     learning_rate = 1e-4
 
@@ -169,7 +169,7 @@ def main():
     train_dataset = UniversalDataset(root_dir=data_root, repeat=40)
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, num_workers=4, pin_memory=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, num_workers=16, pin_memory=True)
 
     # --- MODEL SETUP ---
     model = EDSR().to(device)
