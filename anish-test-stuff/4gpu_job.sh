@@ -1,21 +1,30 @@
 #!/bin/bash
-#SBATCH -A am3138_g   # e.g., m4431_g
-#SBATCH -C gpu
-#SBATCH -q regular
-#SBATCH -t 01:00:00
-#SBATCH -n 4                     # Total number of tasks (1 node * 4 GPUs)
-#SBATCH --ntasks-per-node=4
-#SBATCH --gpus-per-node=4
-#SBATCH -c 32                    # CPU cores per task
-#SBATCH --job-name=edsr-1node
+#SBATCH -A m4431_g           # Your Account ID
+#SBATCH -C gpu               # Use GPU nodes
+#SBATCH -q regular           # 'regular' queue (allow up to 12 hours)
+#SBATCH -t 04:00:00          # Set max time to 4 hours (adjust if needed)
+#SBATCH -N 1                 # 1 Node
+#SBATCH --ntasks-per-node=4  # 4 tasks (processes)
+#SBATCH --gpus-per-node=4    # 4 GPUs
+#SBATCH -c 32                # 32 CPU cores per task (Helps data loading!)
+#SBATCH --gpu-bind=none      # Let PyTorch handle binding
+#SBATCH --output=logs/training_%j.out  # Save logs to a folder
+#SBATCH --error=logs/training_%j.err
 
-# Load environment
+# 1. Create logs folder so the script doesn't complain
+mkdir -p logs
+
+# 2. Load Environment
 module load pytorch
 
-# Set master address for communication (required for DDP)
-export MASTER_ADDR=$(hostname)
-export MASTER_PORT=29500
+# 3. Install Kaggle if missing (just in case)
+pip install kaggle --user
 
-# Run the script
-# -u allows python output to print immediately to logs
-srun -u python train_ddp.py
+# 4. Critical Performance Flag (See logs instantly)
+export PYTHONUNBUFFERED=1
+
+# 5. Run the script
+# We use 'srun' so it knows to launch 4 copies (1 per GPU)
+echo "Starting training at $(date)"
+srun python train_ddp.py
+echo "Training finished at $(date)"
