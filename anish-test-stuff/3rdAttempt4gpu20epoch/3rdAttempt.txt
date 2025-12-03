@@ -1,0 +1,161 @@
+Training on 32000 patches. Validating on 100 patches.
+Epoch [1/20] Step [0/250] Train Loss: 0.2253
+Epoch [1/20] Step [100/250] Train Loss: 0.0347
+Epoch [1/20] Step [200/250] Train Loss: 0.0311
+==================================================
+Epoch 1 Completed.
+Train Loss: 0.0499 | Validation Loss: 0.0325
+Learning Rate: 0.000100
+==================================================
+Epoch [2/20] Step [0/250] Train Loss: 0.0357
+Epoch [2/20] Step [100/250] Train Loss: 0.0334
+Epoch [2/20] Step [200/250] Train Loss: 0.0320
+==================================================
+Epoch 2 Completed.
+Train Loss: 0.0330 | Validation Loss: 0.0349
+Learning Rate: 0.000100
+==================================================
+Epoch [3/20] Step [0/250] Train Loss: 0.0370
+Epoch [3/20] Step [100/250] Train Loss: 0.0329
+Epoch [3/20] Step [200/250] Train Loss: 0.0267
+==================================================
+Epoch 3 Completed.
+Train Loss: 0.0309 | Validation Loss: 0.0299
+Learning Rate: 0.000100
+==================================================
+Epoch [4/20] Step [0/250] Train Loss: 0.0362
+Epoch [4/20] Step [100/250] Train Loss: 0.0358
+Epoch [4/20] Step [200/250] Train Loss: 0.0369
+==================================================
+Epoch 4 Completed.
+Train Loss: 0.0307 | Validation Loss: 0.0305
+Learning Rate: 0.000100
+==================================================
+Epoch [5/20] Step [0/250] Train Loss: 0.0353
+Epoch [5/20] Step [100/250] Train Loss: 0.0384
+Epoch [5/20] Step [200/250] Train Loss: 0.0269
+==================================================
+Epoch 5 Completed.
+Train Loss: 0.0300 | Validation Loss: 0.0299
+Learning Rate: 0.000100
+==================================================
+Epoch [6/20] Step [0/250] Train Loss: 0.0260
+Epoch [6/20] Step [100/250] Train Loss: 0.0330
+Epoch [6/20] Step [200/250] Train Loss: 0.0320
+==================================================
+Epoch 6 Completed.
+Train Loss: 0.0300 | Validation Loss: 0.0343
+Learning Rate: 0.000100
+==================================================
+Epoch [7/20] Step [0/250] Train Loss: 0.0219
+Epoch [7/20] Step [100/250] Train Loss: 0.0295
+Epoch [7/20] Step [200/250] Train Loss: 0.0394
+==================================================
+Epoch 7 Completed.
+Train Loss: 0.0292 | Validation Loss: 0.0279
+Learning Rate: 0.000100
+==================================================
+Epoch [8/20] Step [0/250] Train Loss: 0.0235
+Epoch [8/20] Step [100/250] Train Loss: 0.0252
+Epoch [8/20] Step [200/250] Train Loss: 0.0259
+==================================================
+Epoch 8 Completed.
+Train Loss: 0.0287 | Validation Loss: 0.0270
+Learning Rate: 0.000100
+==================================================
+Epoch [9/20] Step [0/250] Train Loss: 0.0255
+Epoch [9/20] Step [100/250] Train Loss: 0.0383
+Epoch [9/20] Step [200/250] Train Loss: 0.0298
+==================================================
+Epoch 9 Completed.
+Train Loss: 0.0287 | Validation Loss: 0.0289
+Learning Rate: 0.000100
+==================================================
+Epoch [10/20] Step [0/250] Train Loss: 0.0318
+Epoch [10/20] Step [100/250] Train Loss: 0.0258
+Epoch [10/20] Step [200/250] Train Loss: 0.0290
+==================================================
+Epoch 10 Completed.
+Train Loss: 0.0289 | Validation Loss: 0.0275
+Learning Rate: 0.000050
+==================================================
+Epoch [11/20] Step [0/250] Train Loss: 0.0275
+Epoch [11/20] Step [100/250] Train Loss: 0.0276
+Epoch [11/20] Step [200/250] Train Loss: 0.0313
+==================================================
+Epoch 11 Completed.
+Train Loss: 0.0280 | Validation Loss: 0.0281
+Learning Rate: 0.000050
+==================================================
+Epoch [12/20] Step [0/250] Train Loss: 0.0343
+Epoch [12/20] Step [100/250] Train Loss: 0.0279
+Epoch [12/20] Step [200/250] Train Loss: 0.0276
+==================================================
+Epoch 12 Completed.
+Train Loss: 0.0282 | Validation Loss: 0.0261
+Learning Rate: 0.000050
+==================================================
+Epoch [13/20] Step [0/250] Train Loss: 0.0310
+Epoch [13/20] Step [100/250] Train Loss: 0.0264
+Epoch [13/20] Step [200/250] Train Loss: 0.0243
+==================================================
+Epoch 13 Completed.
+Train Loss: 0.0284 | Validation Loss: 0.0287
+Learning Rate: 0.000050
+==================================================
+Epoch [14/20] Step [0/250] Train Loss: 0.0228
+Epoch [14/20] Step [100/250] Train Loss: 0.0196
+Epoch [14/20] Step [200/250] Train Loss: 0.0244
+==================================================
+Epoch 14 Completed.
+Train Loss: 0.0275 | Validation Loss: 0.0275
+Learning Rate: 0.000050
+==================================================
+Epoch [15/20] Step [0/250] Train Loss: 0.0276
+Epoch [15/20] Step [100/250] Train Loss: 0.0190
+Epoch [15/20] Step [200/250] Train Loss: 0.0231
+==================================================
+Epoch 15 Completed.
+Train Loss: 0.0274 | Validation Loss: 0.0288
+Learning Rate: 0.000025
+==================================================
+Epoch [16/20] Step [0/250] Train Loss: 0.0361
+Epoch [16/20] Step [100/250] Train Loss: 0.0297
+Epoch [16/20] Step [200/250] Train Loss: 0.0261
+==================================================
+Epoch 16 Completed.
+Train Loss: 0.0274 | Validation Loss: 0.0282
+Learning Rate: 0.000025
+==================================================
+Epoch [17/20] Step [0/250] Train Loss: 0.0253
+Epoch [17/20] Step [100/250] Train Loss: 0.0272
+Epoch [17/20] Step [200/250] Train Loss: 0.0294
+==================================================
+Epoch 17 Completed.
+Train Loss: 0.0279 | Validation Loss: 0.0290
+Learning Rate: 0.000025
+==================================================
+Epoch [18/20] Step [0/250] Train Loss: 0.0316
+Epoch [18/20] Step [100/250] Train Loss: 0.0302
+Epoch [18/20] Step [200/250] Train Loss: 0.0296
+==================================================
+Epoch 18 Completed.
+Train Loss: 0.0276 | Validation Loss: 0.0303
+Learning Rate: 0.000025
+==================================================
+Epoch [19/20] Step [0/250] Train Loss: 0.0291
+Epoch [19/20] Step [100/250] Train Loss: 0.0276
+Epoch [19/20] Step [200/250] Train Loss: 0.0217
+==================================================
+Epoch 19 Completed.
+Train Loss: 0.0274 | Validation Loss: 0.0269
+Learning Rate: 0.000025
+==================================================
+Epoch [20/20] Step [0/250] Train Loss: 0.0318
+Epoch [20/20] Step [100/250] Train Loss: 0.0288
+Epoch [20/20] Step [200/250] Train Loss: 0.0297
+==================================================
+Epoch 20 Completed.
+Train Loss: 0.0277 | Validation Loss: 0.0290
+Learning Rate: 0.000025
+==================================================
