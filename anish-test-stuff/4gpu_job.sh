@@ -1,30 +1,40 @@
 #!/bin/bash
-#SBATCH -A m4431_g           # Your Account ID
+#SBATCH -A m4431_g           # Your allocation (added _g for GPU access)
 #SBATCH -C gpu               # Use GPU nodes
-#SBATCH -q regular           # 'regular' queue (allow up to 12 hours)
-#SBATCH -t 04:00:00          # Set max time to 4 hours (adjust if needed)
+#SBATCH -q regular           # Queue type
+#SBATCH -t 06:00:00          # Time limit (6 hours)
 #SBATCH -N 1                 # 1 Node
-#SBATCH --ntasks-per-node=4  # 4 tasks (processes)
-#SBATCH --gpus-per-node=4    # 4 GPUs
-#SBATCH -c 32                # 32 CPU cores per task (Helps data loading!)
+#SBATCH --ntasks-per-node=4  # 4 Tasks (1 per GPU)
+#SBATCH --gpus-per-node=4    # 4 GPUs total
+#SBATCH -c 32                # 32 CPU cores per task (Crucial for num_workers=30)
 #SBATCH --gpu-bind=none      # Let PyTorch handle binding
-#SBATCH --output=logs/training_%j.out  # Save logs to a folder
-#SBATCH --error=logs/training_%j.err
+#SBATCH --output=logs/train_%j.out  # Standard output log
+#SBATCH --error=logs/train_%j.err   # Error log
 
-# 1. Create logs folder so the script doesn't complain
+# 1. Create logs directory so the script doesn't fail
 mkdir -p logs
 
-# 2. Load Environment
-module load pytorch
+# 2. Load the PyTorch module
+module load pytorch/2.1.0-cu12
 
-# 3. Install Kaggle if missing (just in case)
+# 3. Ensure Kaggle is installed (for the dataset download)
 pip install kaggle --user
 
-# 4. Critical Performance Flag (See logs instantly)
+# 4. Optimization settings
+# Force Python to print logs immediately (no buffering)
 export PYTHONUNBUFFERED=1
+# Prevent CPU thread contention
+export OMP_NUM_THREADS=1 
 
 # 5. Run the script
-# We use 'srun' so it knows to launch 4 copies (1 per GPU)
-echo "Starting training at $(date)"
+echo "------------------------------------------------"
+echo "Job started at $(date)"
+echo "Running on node: $(hostname)"
+echo "------------------------------------------------"
+
+# srun launches 4 copies of your script (one for each GPU)
 srun python train_ddp.py
-echo "Training finished at $(date)"
+
+echo "------------------------------------------------"
+echo "Job finished at $(date)"
+echo "------------------------------------------------"
