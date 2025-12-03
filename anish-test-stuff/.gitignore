@@ -1,3 +1,5 @@
+venv/
+
 *.pth
 __pycache__/
 # gitignore update
