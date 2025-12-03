@@ -17,17 +17,16 @@ from model import EDSR
 
 # --- 1. Universal Dataset Class ---
 class UniversalDataset(Dataset):
-    def __init__(self, root_dir, patch_size=96, scale_factor=4, repeat=40):
+    def __init__(self, root_dir, patch_size=144, scale_factor=4, repeat=40):
         super(UniversalDataset, self).__init__()
         self.patch_size = patch_size
         self.scale_factor = scale_factor
         self.repeat = repeat
         
-        # Recursively find all images in the directory
+        # Recursively find all images
         self.image_files = []
         valid_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff'}
         
-        # Walk through folder and subfolders
         for root, _, files in os.walk(root_dir):
             for file in files:
                 if os.path.splitext(file)[1].lower() in valid_extensions:
@@ -41,18 +40,16 @@ class UniversalDataset(Dataset):
             ToTensor()
         ])
         
-        # Normalize (Mean subtraction for EDSR)
         self.normalize = Normalize(mean=[0.4488, 0.4371, 0.4040], std=[1.0, 1.0, 1.0])
 
     def __getitem__(self, index):
-        # Modulo index to allow "repeating" the dataset
         actual_index = index % len(self.image_files)
         
         try:
             hr_path = self.image_files[actual_index]
             hr_image = Image.open(hr_path).convert("RGB")
             
-            # Create HR Tensor (Cropped)
+            # Create HR Tensor
             hr_tensor = self.hr_transform(hr_image)
             
             # Create LR Image (Downscaled)
@@ -67,9 +64,7 @@ class UniversalDataset(Dataset):
             
             return lr_tensor, hr_tensor
         except Exception as e:
-            # Skip bad images instead of crashing
             print(f"Warning: Error loading {hr_path}: {e}")
-            # Recursively try the next one
             return self.__getitem__(index + 1)
 
     def __len__(self):
@@ -77,29 +72,18 @@ class UniversalDataset(Dataset):
 
 # --- 2. Kaggle Downloader ---
 def download_kaggle_dataset(dataset_name, save_dir):
-    """
-    Downloads and unzips a Kaggle dataset.
-    Example dataset_name: 'joe1995/div2k-dataset'
-    """
     if os.path.exists(save_dir) and len(os.listdir(save_dir)) > 0:
         print(f"Data seems to exist in {save_dir}. Skipping download.")
         return
 
     print(f"Downloading {dataset_name} from Kaggle to {save_dir}...")
-    
-    # Ensure folder exists
     os.makedirs(save_dir, exist_ok=True)
-    
-    # Use Kaggle CLI API
-    # We use subprocess because installing the python lib on compute nodes can be finicky
     try:
         cmd = f"kaggle datasets download -d {dataset_name} -p {save_dir} --unzip"
         subprocess.check_call(cmd, shell=True)
         print("Download complete.")
     except subprocess.CalledProcessError:
         print("Error: Kaggle download failed.")
-        print("1. Make sure you have ~/.kaggle/kaggle.json")
-        print("2. Make sure you have internet access (try running on login node first)")
         raise
 
 # --- 3. Distributed Setup ---
@@ -109,7 +93,6 @@ def setup_distributed():
         world_size = int(os.environ['SLURM_NTASKS'])
         local_rank = int(os.environ['SLURM_LOCALID'])
         
-        # Resolve Master Addr for Perlmutter
         if rank == 0:
             print(f"SLURM_NODELIST: {os.environ['SLURM_NODELIST']}")
         
@@ -128,7 +111,6 @@ def setup_distributed():
         device = torch.device(f"cuda:{local_rank}")
         return device, rank, world_size, local_rank
     else:
-        # Fallback for local testing
         print("Not using SLURM. Running in single process mode.")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         return device, 0, 1, 0
@@ -142,47 +124,57 @@ def main():
     device, rank, world_size, local_rank = setup_distributed()
 
     # --- CONFIGURATION ---
-    # Example Kaggle Dataset: 'joe1995/div2k-dataset' or 'soumikrakshit/flickr8k'
     kaggle_dataset_name = 'joe1995/div2k-dataset' 
-    
-    # Where to save data on Scratch
     data_root = '/pscratch/sd/a/am3138/datasets/DIV2K' 
     
-    batch_size = 64
-    num_epochs = 20 # Lower epochs because of 'repeat' logic
+    # OPTIMIZATION 1: Batch Size
+    # 32 per GPU * 4 GPUs = 128 effective batch size. 
+    # Because we increased patch_size, we keep this moderate to fit in memory.
+    batch_size = 32 
+    
+    # OPTIMIZATION 2: Patch Size
+    # Increased from 96 to 144. Larger patches = Better texture learning.
+    patch_size = 144
+    
+    num_epochs = 20 
     learning_rate = 1e-4
 
-    # --- DOWNLOAD DATA (Rank 0 only) ---
     if rank == 0:
         try:
             download_kaggle_dataset(kaggle_dataset_name, data_root)
         except Exception as e:
             print(f"Download failed: {e}")
-            # We don't exit, we hope data is there. If not, dataset will crash later.
     
-    # Wait for Rank 0 to finish downloading before other GPUs start
     if dist.is_initialized():
         dist.barrier()
 
     # --- DATA LOADING ---
-    # UniversalDataset will find images recursively in data_root
-    train_dataset = UniversalDataset(root_dir=data_root, repeat=40)
+    train_dataset = UniversalDataset(root_dir=data_root, patch_size=patch_size, repeat=40)
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, num_workers=16, pin_memory=True)
+    
+    # Added prefetch_factor to speed up loading
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, 
+                                  num_workers=16, pin_memory=True, prefetch_factor=4)
 
-    # --- MODEL SETUP ---
-    model = EDSR().to(device)
+    # --- OPTIMIZATION 3: Model Size ---
+    # Increased resblocks from 16 -> 32 and features from 64 -> 96
+    model = EDSR(scale_factor=4, n_resblocks=32, n_feats=96).to(device)
+    
     if dist.is_initialized():
         model = DDP(model, device_ids=[local_rank])
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    
+    # --- OPTIMIZATION 4: Learning Rate Scheduler ---
+    # Decays LR by half at epoch 10 and 15. Helps fine-tune details.
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 15], gamma=0.5)
+    
     criterion = nn.L1Loss()
 
     if rank == 0:
-        print(f"Training on {len(train_dataset)} patches per epoch (Repeat=40)")
+        print(f"Training Config: Batch={batch_size}x{world_size}, Patch={patch_size}, ResBlocks=32")
 
-    # --- LOOP ---
     for epoch in range(num_epochs):
         train_sampler.set_epoch(epoch)
         model.train()
@@ -196,19 +188,24 @@ def main():
             sr_imgs = model(lr_imgs)
             loss = criterion(sr_imgs, hr_imgs)
             loss.backward()
+            
+            # Gradient Clipping (stabilizes larger models)
+            nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+            
             optimizer.step()
 
             running_loss += loss.item()
             
-            # Optional: Print progress every 100 batches
             if rank == 0 and i % 100 == 0:
                 print(f"Epoch [{epoch+1}/{num_epochs}] Step [{i}/{len(train_dataloader)}] Loss: {loss.item():.4f}")
 
+        # Step the scheduler at the end of epoch
+        scheduler.step()
+        
         avg_loss = running_loss / len(train_dataloader)
 
         if rank == 0:
-            print(f"Epoch {epoch+1} Completed. Avg Loss: {avg_loss:.4f}")
-            # Save checkpoint
+            print(f"Epoch {epoch+1} Completed. Avg Loss: {avg_loss:.4f} | LR: {scheduler.get_last_lr()[0]:.6f}")
             state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
             torch.save(state_dict, f'edsr_epoch_{epoch+1}.pth')
 
