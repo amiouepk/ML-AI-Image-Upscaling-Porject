@@ -1,5 +1,6 @@
 venv/
 
+1stAttemptModels/
 *.pth
 __pycache__/
 # gitignore update
