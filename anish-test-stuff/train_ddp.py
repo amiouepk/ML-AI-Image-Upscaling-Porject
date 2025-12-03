@@ -17,23 +17,24 @@ from model import EDSR
 
 # --- 1. Universal Dataset Class ---
 class UniversalDataset(Dataset):
-    def __init__(self, root_dir, patch_size=144, scale_factor=4, repeat=40):
+    def __init__(self, root_dir, patch_size=144, scale_factor=4, repeat=1):
         super(UniversalDataset, self).__init__()
         self.patch_size = patch_size
         self.scale_factor = scale_factor
         self.repeat = repeat
         
-        # Recursively find all images
         self.image_files = []
         valid_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff'}
         
+        # Walk through folder
         for root, _, files in os.walk(root_dir):
             for file in files:
                 if os.path.splitext(file)[1].lower() in valid_extensions:
                     self.image_files.append(os.path.join(root, file))
 
         if len(self.image_files) == 0:
-            raise RuntimeError(f"No images found in {root_dir}")
+            # Fallback for validation: if valid folder is empty/missing, don't crash immediately
+            print(f"Warning: No images found in {root_dir}")
 
         self.hr_transform = Compose([
             RandomCrop(patch_size),
@@ -43,28 +44,26 @@ class UniversalDataset(Dataset):
         self.normalize = Normalize(mean=[0.4488, 0.4371, 0.4040], std=[1.0, 1.0, 1.0])
 
     def __getitem__(self, index):
+        if len(self.image_files) == 0: return torch.zeros(1), torch.zeros(1)
+
         actual_index = index % len(self.image_files)
         
         try:
             hr_path = self.image_files[actual_index]
             hr_image = Image.open(hr_path).convert("RGB")
             
-            # Create HR Tensor
             hr_tensor = self.hr_transform(hr_image)
             
-            # Create LR Image (Downscaled)
             lr_image = F.resize(ToPILImage()(hr_tensor), 
                               hr_tensor.shape[1] // self.scale_factor, 
                               interpolation=Image.BICUBIC)
             lr_tensor = ToTensor()(lr_image)
             
-            # Apply Normalization
             lr_tensor = self.normalize(lr_tensor)
             hr_tensor = self.normalize(hr_tensor)
             
             return lr_tensor, hr_tensor
         except Exception as e:
-            print(f"Warning: Error loading {hr_path}: {e}")
             return self.__getitem__(index + 1)
 
     def __len__(self):
@@ -75,7 +74,7 @@ def download_kaggle_dataset(dataset_name, save_dir):
     if os.path.exists(save_dir) and len(os.listdir(save_dir)) > 0:
         print(f"Data seems to exist in {save_dir}. Skipping download.")
         return
-
+    
     print(f"Downloading {dataset_name} from Kaggle to {save_dir}...")
     os.makedirs(save_dir, exist_ok=True)
     try:
@@ -127,18 +126,17 @@ def main():
     kaggle_dataset_name = 'joe1995/div2k-dataset' 
     data_root = '/pscratch/sd/a/am3138/datasets/DIV2K' 
     
-    # OPTIMIZATION 1: Batch Size
-    # 32 per GPU * 4 GPUs = 128 effective batch size. 
-    # Because we increased patch_size, we keep this moderate to fit in memory.
+    # Specific paths for Train and Validation
+    train_dir = os.path.join(data_root, 'DIV2K_train_HR')
+    val_dir = os.path.join(data_root, 'DIV2K_valid_HR')
+
+    # Optimization Config
     batch_size = 32 
-    
-    # OPTIMIZATION 2: Patch Size
-    # Increased from 96 to 144. Larger patches = Better texture learning.
     patch_size = 144
-    
     num_epochs = 20 
     learning_rate = 1e-4
 
+    # --- DOWNLOAD (Rank 0 only) ---
     if rank == 0:
         try:
             download_kaggle_dataset(kaggle_dataset_name, data_root)
@@ -149,37 +147,41 @@ def main():
         dist.barrier()
 
     # --- DATA LOADING ---
-    train_dataset = UniversalDataset(root_dir=data_root, patch_size=patch_size, repeat=40)
-    
+    # 1. Training Set (High Repeat for learning)
+    if not os.path.exists(train_dir): train_dir = data_root # Fallback
+    train_dataset = UniversalDataset(root_dir=train_dir, patch_size=patch_size, repeat=40)
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    
-    # Added prefetch_factor to speed up loading
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, 
                                   num_workers=16, pin_memory=True, prefetch_factor=4)
 
-    # --- OPTIMIZATION 3: Model Size ---
-    # Increased resblocks from 16 -> 32 and features from 64 -> 96
-    model = EDSR(scale_factor=4, n_resblocks=32, n_feats=96).to(device)
+    # 2. Validation Set (No Repeat, Shuffle=False)
+    # If val dir doesn't exist, use train dir but repeat=1 just to check code doesn't crash
+    if not os.path.exists(val_dir): val_dir = train_dir 
     
+    val_dataset = UniversalDataset(root_dir=val_dir, patch_size=patch_size, repeat=1)
+    # We use DistributedSampler for Validation too so all 4 GPUs split the work
+    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, num_workers=8)
+
+    # --- MODEL ---
+    model = EDSR(scale_factor=4, n_resblocks=32, n_feats=96).to(device)
     if dist.is_initialized():
         model = DDP(model, device_ids=[local_rank])
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    
-    # --- OPTIMIZATION 4: Learning Rate Scheduler ---
-    # Decays LR by half at epoch 10 and 15. Helps fine-tune details.
     scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 15], gamma=0.5)
-    
     criterion = nn.L1Loss()
 
     if rank == 0:
-        print(f"Training Config: Batch={batch_size}x{world_size}, Patch={patch_size}, ResBlocks=32")
+        print(f"Training on {len(train_dataset)} patches. Validating on {len(val_dataset)} patches.")
 
+    # --- TRAINING LOOP ---
     for epoch in range(num_epochs):
         train_sampler.set_epoch(epoch)
         model.train()
         running_loss = 0.0
         
+        # Train
         for i, (lr_imgs, hr_imgs) in enumerate(train_dataloader):
             lr_imgs = lr_imgs.to(device, non_blocking=True)
             hr_imgs = hr_imgs.to(device, non_blocking=True)
@@ -188,24 +190,50 @@ def main():
             sr_imgs = model(lr_imgs)
             loss = criterion(sr_imgs, hr_imgs)
             loss.backward()
-            
-            # Gradient Clipping (stabilizes larger models)
             nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-            
             optimizer.step()
 
             running_loss += loss.item()
             
             if rank == 0 and i % 100 == 0:
-                print(f"Epoch [{epoch+1}/{num_epochs}] Step [{i}/{len(train_dataloader)}] Loss: {loss.item():.4f}")
+                print(f"Epoch [{epoch+1}/{num_epochs}] Step [{i}/{len(train_dataloader)}] Train Loss: {loss.item():.4f}")
 
-        # Step the scheduler at the end of epoch
         scheduler.step()
-        
-        avg_loss = running_loss / len(train_dataloader)
+        avg_train_loss = running_loss / len(train_dataloader)
 
+        # --- VALIDATION LOOP ---
+        model.eval()
+        running_val_loss = 0.0
+        with torch.no_grad():
+            for lr_v, hr_v in val_dataloader:
+                lr_v = lr_v.to(device, non_blocking=True)
+                hr_v = hr_v.to(device, non_blocking=True)
+                
+                sr_v = model(lr_v)
+                loss_v = criterion(sr_v, hr_v)
+                running_val_loss += loss_v.item()
+
+        # Calculate average validation loss across this GPU's slice
+        local_val_avg = running_val_loss / len(val_dataloader)
+        
+        # Convert to tensor to sync across GPUs
+        val_loss_tensor = torch.tensor(local_val_avg).to(device)
+        
+        # Sum up the averages from all GPUs and divide by world_size
+        if dist.is_initialized():
+            dist.all_reduce(val_loss_tensor, op=dist.ReduceOp.SUM)
+            global_val_loss = val_loss_tensor.item() / world_size
+        else:
+            global_val_loss = local_val_avg
+
+        # --- PRINT & SAVE ---
         if rank == 0:
-            print(f"Epoch {epoch+1} Completed. Avg Loss: {avg_loss:.4f} | LR: {scheduler.get_last_lr()[0]:.6f}")
+            print(f"="*50)
+            print(f"Epoch {epoch+1} Completed.")
+            print(f"Train Loss: {avg_train_loss:.4f} | Validation Loss: {global_val_loss:.4f}")
+            print(f"Learning Rate: {scheduler.get_last_lr()[0]:.6f}")
+            print(f"="*50)
+            
             state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
             torch.save(state_dict, f'edsr_epoch_{epoch+1}.pth')
 
