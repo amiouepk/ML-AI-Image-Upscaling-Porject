@@ -15,9 +15,9 @@ import subprocess
 # Import your model
 from model import EDSR
 
-# --- 1. Universal Dataset Class (Recursive) ---
+# --- 1. Universal Dataset Class ---
 class UniversalDataset(Dataset):
-    def __init__(self, root_dir, patch_size=192, scale_factor=4, repeat=1):
+    def __init__(self, root_dir, patch_size=192, scale_factor=4, repeat=10):
         super(UniversalDataset, self).__init__()
         self.patch_size = patch_size
         self.scale_factor = scale_factor
@@ -26,12 +26,14 @@ class UniversalDataset(Dataset):
         self.image_files = []
         valid_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.webp'}
         
-        # Recursively walk through ALL subfolders (DIV2K, LSDIR, etc.)
+        # Recursively walk through ALL subfolders
+        # This allows it to find images inside 'DF2K/DIV2K' and 'DF2K/Flickr2K' automatically
         print(f"Scanning {root_dir} for images...")
-        for root, _, files in os.walk(root_dir):
-            for file in files:
-                if os.path.splitext(file)[1].lower() in valid_extensions:
-                    self.image_files.append(os.path.join(root, file))
+        if os.path.exists(root_dir):
+            for root, _, files in os.walk(root_dir):
+                for file in files:
+                    if os.path.splitext(file)[1].lower() in valid_extensions:
+                        self.image_files.append(os.path.join(root, file))
 
         if len(self.image_files) == 0:
             print(f"Warning: No images found in {root_dir}")
@@ -47,7 +49,6 @@ class UniversalDataset(Dataset):
     def __getitem__(self, index):
         if len(self.image_files) == 0: return torch.zeros(1), torch.zeros(1)
 
-        # Modulo for repeat (or safety)
         actual_index = index % len(self.image_files)
         
         try:
@@ -56,7 +57,6 @@ class UniversalDataset(Dataset):
             
             hr_tensor = self.hr_transform(hr_image)
             
-            # Create Low-Res on the fly
             lr_image = F.resize(ToPILImage()(hr_tensor), 
                               hr_tensor.shape[1] // self.scale_factor, 
                               interpolation=Image.BICUBIC)
@@ -67,46 +67,19 @@ class UniversalDataset(Dataset):
             
             return lr_tensor, hr_tensor
         except Exception as e:
-            # If an image is corrupt, just skip to the next one
             return self.__getitem__(index + 1)
 
     def __len__(self):
         return len(self.image_files) * self.repeat
 
-# --- 2. Multi-Dataset Downloader ---
-def download_datasets(dataset_list, root_dir):
-    """
-    Downloads multiple Kaggle datasets into subfolders.
-    dataset_list: List of tuples [('kaggle_id', 'folder_name'), ...]
-    """
-    for kaggle_id, folder_name in dataset_list:
-        save_path = os.path.join(root_dir, folder_name)
-        
-        # Check if data exists (naive check: is folder empty?)
-        if os.path.exists(save_path) and len(os.listdir(save_path)) > 5:
-            print(f"Data seems to exist in {save_path}. Skipping.")
-            continue
-
-        print(f"Downloading {kaggle_id} to {save_path}...")
-        os.makedirs(save_path, exist_ok=True)
-        try:
-            # -d = dataset, -p = path, --unzip = auto unzip
-            cmd = f"kaggle datasets download -d {kaggle_id} -p {save_path} --unzip"
-            subprocess.check_call(cmd, shell=True)
-            print(f"Finished {folder_name}.")
-        except subprocess.CalledProcessError:
-            print(f"Error downloading {kaggle_id}. Check API key and internet.")
-
-# --- 3. Distributed Setup ---
+# --- 2. Distributed Setup ---
 def setup_distributed():
     if 'SLURM_PROCID' in os.environ:
         rank = int(os.environ['SLURM_PROCID'])
         world_size = int(os.environ['SLURM_NTASKS'])
         local_rank = int(os.environ['SLURM_LOCALID'])
         
-        # Perlmutter Master Addr Fix
         try:
-            import subprocess
             cmd = "scontrol show hostnames $SLURM_JOB_NODELIST"
             stdout = subprocess.check_output(cmd, shell=True)
             hostnames = stdout.decode().splitlines()
@@ -129,54 +102,49 @@ def cleanup():
     if dist.is_initialized():
         dist.destroy_process_group()
 
-# --- 4. Main ---
+# --- 3. Main ---
 def main():
     device, rank, world_size, local_rank = setup_distributed()
 
-    # --- DATASET CONFIGURATION ---
-    # Root folder on Scratch
-    data_root = '/pscratch/sd/a/am3138/datasets_combined'
+    # --- PATH CONFIGURATION ---
+    # This points exactly to where your 'ls' command showed the folder
+    data_root = '/pscratch/sd/a/am3138/datasets_combined/DF2K'
     
-    # List of datasets to download
-    # Format: ('Kaggle_Dataset_ID', 'Local_Folder_Name')
-    DATASETS = [
-        ('joe1995/div2k-dataset', 'DIV2K'),
-        # Try this ID for LSDIR, or replace with another one you find
-        ('praveen730/lsdir-dataset', 'LSDIR') 
+    # Validation path logic:
+    # We try to find the standard 'DIV2K_valid_HR' folder inside DF2K.
+    # If not found, we use the root folder (better than crashing).
+    possible_val_paths = [
+        os.path.join(data_root, 'DIV2K_valid_HR'),
+        os.path.join(data_root, 'valid'),
+        os.path.join(data_root, 'DF2K_valid_HR')
     ]
+    
+    val_dir = data_root # Default fallback
+    for p in possible_val_paths:
+        if os.path.exists(p):
+            val_dir = p
+            break
+            
+    if rank == 0:
+        print(f"Training Data Root: {data_root}")
+        print(f"Validation Data:    {val_dir}")
 
-    # Hyperparameters
-    # 64 is safe for A100. If you get OOM, drop to 32.
-    batch_size = 64
-    patch_size = 192
+    # --- HYPERPARAMETERS (Optimized for A100) ---
+    batch_size = 64     
+    patch_size = 192    
     num_epochs = 20
     learning_rate = 1e-4
 
-    # --- DOWNLOAD (Rank 0 Only) ---
-    if rank == 0:
-        download_datasets(DATASETS, data_root)
-    
-    if dist.is_initialized():
-        dist.barrier()
-
     # --- DATA LOADING ---
-    # 1. Training: Point to data_root. It will find DIV2K/ and LSDIR/ automatically.
-    # IMPORTANT: repeat=1 because LSDIR is huge (84k images).
-    # 84k images * 1 repeat > 800 images * 40 repeat.
-    train_dataset = UniversalDataset(root_dir=data_root, patch_size=patch_size, repeat=1)
+    # Repeat=10: DF2K (3450 imgs) * 10 = ~34,500 samples/epoch. 
+    train_dataset = UniversalDataset(root_dir=data_root, patch_size=patch_size, repeat=10)
     
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
     
-    # num_workers=30 to keep the beast fed
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, 
                                   num_workers=30, pin_memory=True, prefetch_factor=2)
 
-    # 2. Validation: VALIDATE ONLY ON DIV2K
-    # We don't want to validate on 10,000 LSDIR images, it takes too long.
-    # We hardcode the path to the DIV2K validation folder to keep metrics consistent.
-    val_dir = os.path.join(data_root, 'DIV2K', 'DIV2K_valid_HR')
-    if not os.path.exists(val_dir): val_dir = data_root # Fallback
-
+    # Validation (Repeat=1)
     val_dataset = UniversalDataset(root_dir=val_dir, patch_size=patch_size, repeat=1)
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, num_workers=8)
@@ -192,8 +160,7 @@ def main():
     criterion = nn.L1Loss()
 
     if rank == 0:
-        print(f"Total Training Images: {len(train_dataset)}")
-        print(f"Total Validation Images: {len(val_dataset)}")
+        print(f"Total Training Samples per Epoch: {len(train_dataset)}")
 
     # --- TRAINING LOOP ---
     for epoch in range(num_epochs):
@@ -214,7 +181,6 @@ def main():
 
             running_loss += loss.item()
             
-            # Print every 100 steps
             if rank == 0 and i % 100 == 0:
                 print(f"Epoch [{epoch+1}/{num_epochs}] Step [{i}/{len(train_dataloader)}] Loss: {loss.item():.4f}")
 
@@ -230,10 +196,7 @@ def main():
                 sr_v = model(lr_v)
                 running_val_loss += criterion(sr_v, hr_v).item()
 
-        # Average across this GPU
         local_val_avg = running_val_loss / len(val_dataloader)
-        
-        # Sync across all 4 GPUs for correct reporting
         val_tensor = torch.tensor(local_val_avg).to(device)
         if dist.is_initialized():
             dist.all_reduce(val_tensor, op=dist.ReduceOp.SUM)
@@ -248,7 +211,7 @@ def main():
             print(f"="*50)
             
             state_dict = model.module.state_dict() if hasattr(model, 'module') else model.state_dict()
-            torch.save(state_dict, f'edsr_lsdir_epoch_{epoch+1}.pth')
+            torch.save(state_dict, f'edsr_df2k_epoch_{epoch+1}.pth')
 
     cleanup()
 
