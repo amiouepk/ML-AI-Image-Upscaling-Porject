@@ -27,7 +27,6 @@ class UniversalDataset(Dataset):
         valid_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff', '.webp'}
         
         # Recursively walk through ALL subfolders
-        # This allows it to find images inside 'DF2K/DIV2K' and 'DF2K/Flickr2K' automatically
         print(f"Scanning {root_dir} for images...")
         if os.path.exists(root_dir):
             for root, _, files in os.walk(root_dir):
@@ -107,19 +106,16 @@ def main():
     device, rank, world_size, local_rank = setup_distributed()
 
     # --- PATH CONFIGURATION ---
-    # This points exactly to where your 'ls' command showed the folder
     data_root = '/pscratch/sd/a/am3138/datasets_combined/DF2K'
     
-    # Validation path logic:
-    # We try to find the standard 'DIV2K_valid_HR' folder inside DF2K.
-    # If not found, we use the root folder (better than crashing).
+    # Path logic checks
     possible_val_paths = [
         os.path.join(data_root, 'DIV2K_valid_HR'),
         os.path.join(data_root, 'valid'),
         os.path.join(data_root, 'DF2K_valid_HR')
     ]
     
-    val_dir = data_root # Default fallback
+    val_dir = data_root 
     for p in possible_val_paths:
         if os.path.exists(p):
             val_dir = p
@@ -129,38 +125,40 @@ def main():
         print(f"Training Data Root: {data_root}")
         print(f"Validation Data:    {val_dir}")
 
-    # --- HYPERPARAMETERS (Optimized for A100) ---
+    # --- HYPERPARAMETERS ---
     batch_size = 64     
     patch_size = 192    
-    num_epochs = 20
+    # CHANGE 1: Increased Epochs to 40
+    num_epochs = 40
     learning_rate = 1e-4
 
     # --- DATA LOADING ---
-    # Repeat=10: DF2K (3450 imgs) * 10 = ~34,500 samples/epoch. 
     train_dataset = UniversalDataset(root_dir=data_root, patch_size=patch_size, repeat=10)
-    
     train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
-    
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, 
                                   num_workers=30, pin_memory=True, prefetch_factor=2)
 
-    # Validation (Repeat=1)
+    # Validation
+    if not os.path.exists(val_dir): val_dir = train_dir 
     val_dataset = UniversalDataset(root_dir=val_dir, patch_size=patch_size, repeat=1)
     val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, num_workers=8)
 
     # --- MODEL ---
-    # Using the larger EDSR model
     model = EDSR(scale_factor=4, n_resblocks=32, n_feats=96).to(device)
     if dist.is_initialized():
         model = DDP(model, device_ids=[local_rank])
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 15], gamma=0.5)
+    
+    # CHANGE 2: Adjusted Milestones to [20, 30] for longer training
+    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[20, 30], gamma=0.5)
+    
     criterion = nn.L1Loss()
 
     if rank == 0:
         print(f"Total Training Samples per Epoch: {len(train_dataset)}")
+        print(f"Total Epochs: {num_epochs} (LR decay at 20 and 30)")
 
     # --- TRAINING LOOP ---
     for epoch in range(num_epochs):
