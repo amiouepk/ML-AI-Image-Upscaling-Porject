@@ -3,6 +3,7 @@ venv/
 1stAttemptModels/
 2ndAttemptModels/
 3rdAttemptModels/
+4thAttemptModels/
 
 *.pth
 __pycache__/

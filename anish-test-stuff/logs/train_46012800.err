@@ -1,0 +1,31 @@
+Lmod has detected the following error: The following module(s) are unknown:
+"pytorch/2.1.0-cu12"
+
+Please check the spelling or version number. Also try "module spider ..."
+It is also possible your cache file is out-of-date; it may help to try:
+  $ module --ignore_cache load "pytorch/2.1.0-cu12"
+
+Also make sure that all modulefiles written in TCL start with the string
+#%Module
+
+
+
+/var/spool/slurmd/job46012800/slurm_script: line 21: pip: command not found
+  File "train_ddp.py", line 30
+    print(f"Scanning {root_dir} for images...")
+                                             ^
+SyntaxError: invalid syntax
+  File "train_ddp.py", line 30
+    print(f"Scanning {root_dir} for images...")
+                                             ^
+SyntaxError: invalid syntax
+  File "train_ddp.py", line 30
+    print(f"Scanning {root_dir} for images...")
+                                             ^
+SyntaxError: invalid syntax
+  File "train_ddp.py", line 30
+    print(f"Scanning {root_dir} for images...")
+                                             ^
+SyntaxError: invalid syntax
+srun: error: nid008536: tasks 0-3: Exited with exit code 1
+srun: Terminating StepId=46012800.0
