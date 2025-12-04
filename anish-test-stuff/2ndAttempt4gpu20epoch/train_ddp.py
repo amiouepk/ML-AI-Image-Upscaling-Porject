@@ -149,7 +149,7 @@ def main():
     data_root = '/pscratch/sd/a/am3138/datasets/DIV2K' 
     
     batch_size = 64
-    num_epochs = 20 # Lower epochs because of 'repeat' logic
+    num_epochs = 40 # Lower epochs because of 'repeat' logic
     learning_rate = 1e-4
 
     # --- DOWNLOAD DATA (Rank 0 only) ---
